@@ -97,11 +97,18 @@ public class Gar extends BaseServer {
             addController(new DevController(vertx, config));
         }
 
-        try{
-            new CronTrigger(vertx, exportCron).schedule(new ExportTask(vertx.eventBus()));
-        }catch (ParseException e) {
-            log.fatal("An error occurred while setting cron task", e);
-            startGarFuture = Future.failedFuture(e);
+        // export-cron vide => export périodique GAR désactivé (pas de planification).
+        // Évite de relancer le SFTP GAR sur les environnements sans compte GAR réel
+        // (sinon échec host-key "Could not verify ssh-ed25519" en boucle dans les logs).
+        if (exportCron != null && !exportCron.trim().isEmpty()) {
+            try {
+                new CronTrigger(vertx, exportCron).schedule(new ExportTask(vertx.eventBus()));
+            } catch (ParseException e) {
+                log.fatal("An error occurred while setting cron task", e);
+                startGarFuture = Future.failedFuture(e);
+            }
+        } else {
+            log.info("[Gar] export-cron vide : export periodique GAR desactive");
         }
         return startGarFuture;
     }
