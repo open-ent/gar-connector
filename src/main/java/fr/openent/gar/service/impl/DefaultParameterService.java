@@ -114,8 +114,14 @@ public class DefaultParameterService implements ParameterService {
 
                 Neo4j.getInstance().execute(queryRole, new JsonObject().put("linkName", GAR_LINK_NAME),
                         Neo4jResult.validUniqueResultHandler(linkResult -> {
-                            if (linkResult.isLeft()) {
+                            if (linkResult.isLeft() || !linkResult.right().getValue().containsKey("id")) {
+                                // 0 ligne (rôle GAR_LINK_NAME introuvable) : validUniqueResultHandler renvoie un
+                                // faux succès avec un JsonObject vide (cf. audit SqlResult/Neo4jResult), d'où le
+                                // contrôle explicite de "id" en plus de isLeft() — sans lui, la relation
+                                // (Group)-[:AUTHORIZED]->(Role) n'était jamais créée mais l'appelant recevait
+                                // quand même un succès.
                                 handler.handle(new Either.Left<>("Failed to fetch role id"));
+                                return;
                             }
                             String roleId = linkResult.right().getValue().getString("id");
                             String queryLink = "MATCH (r:Role), (g:Group) " +
