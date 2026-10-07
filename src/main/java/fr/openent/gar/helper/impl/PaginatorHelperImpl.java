@@ -17,8 +17,13 @@ public class PaginatorHelperImpl implements PaginatorHelper  {
 
     public PaginatorHelperImpl() {
         LIMIT = 25000;
-        if(CONFIG.containsKey("pagination-limit")){
-            LIMIT = CONFIG.getInteger("pagination-limit");
+        if (CONFIG.containsKey("pagination-limit")) {
+            Object val = CONFIG.getValue("pagination-limit");
+            if (val instanceof Number) {
+                LIMIT = ((Number) val).intValue();
+            } else if (val instanceof String) {
+                LIMIT = Integer.parseInt((String) val);
+            }
         }
     }
 

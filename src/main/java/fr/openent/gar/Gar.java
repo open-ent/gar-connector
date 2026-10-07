@@ -16,7 +16,6 @@ import org.entcore.common.http.BaseServer;
 import fr.openent.gar.constants.Field;
 
 import java.text.ParseException;
-import java.util.Arrays;
 
 public class Gar extends BaseServer {
 
@@ -88,10 +87,11 @@ public class Gar extends BaseServer {
         addController(new GarController(vertx, config));
         addController(new SettingController(eb));
 
-        startGarFuture = vertx.deployVerticle("fr.openent.gar.export.impl.ExportWorker", new DeploymentOptions().setConfig(config)
-            .setIsolationGroup("mediacentre_worker_group")
-            .setIsolatedClasses(Arrays.asList("fr.openent.mediacentre.export.impl.*",
-                "fr.openent.mediacentre.helper.impl.*", "com.sun.org.apache.xalan.internal.xsltc.trax.*"))
+        final String exportCron = config.getString("export-cron", "");
+
+        // setIsolationGroup/setIsolatedClasses removed in Vert.x 4.x
+        startGarFuture = vertx.deployVerticle("fr.openent.gar.export.impl.ExportWorker", new DeploymentOptions()
+            .setConfig(config)
             .setWorker(true)).mapEmpty();
 
         if (config.getBoolean(Field.DEV_DASH_MODE, false)) {
@@ -101,15 +101,18 @@ public class Gar extends BaseServer {
         final ExportTask exportTask = new ExportTask(vertx.eventBus());
         // Enable export task to be triggered via API
         addController(new TaskController(exportTask));
-        // Schedule export task from cron expression
-        final String exportCron = config.getString("export-cron", "");
+        // export-cron vide => export périodique GAR désactivé (pas de planification).
+        // Évite de relancer le SFTP GAR sur les environnements sans compte GAR réel
+        // (sinon échec host-key "Could not verify ssh-ed25519" en boucle dans les logs).
         if (exportCron != null && !exportCron.trim().isEmpty()) {
-            try{
+            try {
                 new CronTrigger(vertx, exportCron).schedule(exportTask);
-            }catch (ParseException e) {
+            } catch (ParseException e) {
                 log.fatal("An error occurred while setting cron task", e);
                 startGarFuture = Future.failedFuture(e);
             }
+        } else {
+            log.info("[Gar] export-cron vide : export periodique GAR desactive");
         }
 
         return startGarFuture;
