@@ -11,7 +11,7 @@ jobs:
       options: --user root -v ${{ github.workspace }}:/home/node/:rw
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@50fbc622fc4ef5163becd7fab6573eac35f8462e # v1
       - name: Run npm install
         run: npm install
       - name: Run build node with gulp
@@ -27,7 +27,7 @@ jobs:
       options: --user root -v ${{ github.workspace }}:/home/maven/:rw
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@50fbc622fc4ef5163becd7fab6573eac35f8462e # v1
       - name: Run build maven
         run: mvn -Duser.home=/var/maven clean install
       - name: Run maven test
