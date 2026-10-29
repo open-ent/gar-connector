@@ -1,0 +1,228 @@
+name: Build & Publish Fat Mod
+
+# Chaîne de publication commune aux modules de l'ENT (cf. moodle-connector, poll) :
+# frontend Gulp sous Node 10, fat jar Maven sous JDK 21, publication sur rct-nexus au tag.
+# Remplace dev-check-repository.yml (npm + mvn install avec tests à chaque push) et la
+# chaîne Jenkins/edifice ; c'est aussi la recette que rejoue le build local
+# (open-ent-mods : scripts/release/lib/ci-recipe.py, via release.sh).
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - dev
+      - '*-patched'
+      - '*-patched-dev'
+    tags: ['*']
+  pull_request:
+    branches: [main, master, develop, dev]
+  workflow_dispatch:
+    inputs:
+      entcore_version:
+        description: 'Version entcore (ex: 6.16.14-patched). Laissez vide pour utiliser la version du pom.xml.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  frontend:
+    name: Build Frontend (Gulp/Node 10)
+    runs-on: ${{ vars.OEM_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # public/dist est ignoré par git : sans ce build, le fat jar part sans interface.
+      - name: Build with Node 10 via Docker
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            --user root \
+            opendigitaleducation/node:10-alpine \
+            sh -c "npm install --legacy-peer-deps && node_modules/gulp/bin/gulp.js build"
+
+      - name: Verify build outputs
+        run: |
+          test -n "$(ls -A src/main/resources/public/dist 2>/dev/null)" \
+            || { echo "::error::public/dist vide : build Gulp incomplet"; exit 1; }
+
+      - name: Upload frontend assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-assets
+          path: src/main/resources/
+          retention-days: 1
+
+  backend:
+    name: Build & Publish Fat Mod
+    runs-on: ${{ vars.OEM_RUNNER || 'ubuntu-latest' }}
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      - name: Download frontend assets
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-assets
+          path: src/main/resources/
+
+      - name: Configure Maven pour GitHub Packages
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << EOF
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>$GITHUB_ACTOR</username>
+                <password>$GITHUB_TOKEN</password>
+              </server>
+              <server>
+                <id>pt-releases</id>
+                <username>$NEXUS_USER</username>
+                <password>$NEXUS_PASSWORD</password>
+              </server>
+            </servers>
+            <profiles>
+              <profile>
+                <id>github-packages</id>
+                <repositories>
+                  <repository>
+                    <id>github</id>
+                    <name>GitHub open-ent Packages</name>
+                    <url>https://maven.pkg.github.com/open-ent/entcore-v2</url>
+                    <releases><enabled>true</enabled></releases>
+                    <snapshots><enabled>true</enabled></snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>github-packages</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+
+      # Les artefacts entcore `-patched` sont republiés À VERSION IDENTIQUE (convention du
+      # fork : une branche `X.Y.Z-patched-dev`, un tag `X.Y.Z-patched` qu'on déplace). Or Maven
+      # tient une version release pour immuable et ne la retélécharge jamais si elle est déjà
+      # dans le dépôt local — le cache de `setup-java` sert alors un entcore périmé.
+      - name: Purger entcore du cache Maven (versions -patched republiées)
+        run: rm -rf ~/.m2/repository/org/entcore
+
+      # -Dmaven.test.skip=true (et pas seulement -DskipTests) : évite la COMPILATION des tests,
+      # qui exigent org.entcore:tests (${entCoreVersion}), artefact qui n'est plus publié, et
+      # que le plugin Scala hérité d'app-parent ne sait pas compiler sous JDK 21.
+      - name: Build fat JAR
+        run: |
+          ENTCORE_OPT=""
+          if [ -n "$ENTCORE_VERSION" ]; then ENTCORE_OPT="-DentCoreVersion=$ENTCORE_VERSION"; fi
+          mvn clean package -Dmaven.test.skip=true -B -DbuildNumber=${GITHUB_SHA::8} -DscmBranch=${GITHUB_REF_NAME} $ENTCORE_OPT
+        env:
+          ENTCORE_VERSION: ${{ github.event.inputs.entcore_version }}
+
+      - name: Configure Maven for GitHub Packages
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << 'EOF'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                                        https://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${env.GITHUB_ACTOR}</username>
+                <password>${env.GITHUB_TOKEN}</password>
+              </server>
+              <server>
+                <id>pt-releases</id>
+                <username>${{ secrets.NEXUS_USER }}</username>
+                <password>${{ secrets.NEXUS_PASSWORD }}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Publish fat JAR to GitHub Packages
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          FAT_JAR=$(ls target/*-fat.jar 2>/dev/null | head -1)
+          if [ -z "${FAT_JAR}" ]; then
+            echo "::error::Fat JAR not found in target/"
+            ls -la target/*.jar 2>/dev/null || echo "No JARs found in target/"
+            exit 1
+          fi
+          # coords depuis le nom du fat-mod (grp~art~ver-fat.jar)
+          BASE=$(basename "${FAT_JAR}" -fat.jar)
+          GROUP_ID=${BASE%%~*}; REST=${BASE#*~}; ARTIFACT_ID=${REST%%~*}; VERSION=${REST#*~}
+          echo "Publishing ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}:fat -> GitHub Packages"
+          mvn deploy:deploy-file \
+            -Dfile="${FAT_JAR}" \
+            -DgroupId="${GROUP_ID}" \
+            -DartifactId="${ARTIFACT_ID}" \
+            -Dversion="${VERSION}" \
+            -Dclassifier=fat \
+            -Dpackaging=jar \
+            -DrepositoryId=github \
+            -Durl="https://maven.pkg.github.com/${{ github.repository }}" \
+            -B
+
+      - name: Publish fat JAR to rct-nexus
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          cat > /tmp/nx-settings.xml <<EOF
+          <settings><servers><server><id>pt-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server></servers></settings>
+          EOF
+          FAT_JAR=$(ls target/*-fat.jar 2>/dev/null | head -1)
+          if [ -z "${FAT_JAR}" ]; then echo "::error::Fat JAR not found"; exit 1; fi
+          FAT_ABS=$(realpath "${FAT_JAR}")
+          # coords depuis le nom du fat-mod (grp~art~ver-fat.jar) : pas besoin de resoudre le projet
+          BASE=$(basename "${FAT_JAR}" -fat.jar)
+          GROUP_ID=${BASE%%~*}; REST=${BASE#*~}; ARTIFACT_ID=${REST%%~*}; VERSION=${REST#*~}
+          echo "Deploying ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}:fat -> rct-nexus (maven-releases)"
+          # IMPORTANT : lancer depuis /tmp (dossier SANS pom) sinon mvn lit le pom du projet et resout le parent
+          # classifier=fat : c'est l'artefact que le launcher tire (grp~art~ver-fat.jar)
+          cd /tmp
+          mvn deploy:deploy-file -s /tmp/nx-settings.xml \
+            -Dfile="${FAT_ABS}" \
+            -DgroupId="${GROUP_ID}" \
+            -DartifactId="${ARTIFACT_ID}" \
+            -Dversion="${VERSION}" \
+            -Dclassifier=fat \
+            -Dpackaging=jar \
+            -DrepositoryId=pt-releases \
+            -Durl="https://rct-nexus.tech.fr/repository/maven-releases/" \
+            -B
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: target/*-fat.jar
+          generate_release_notes: true
