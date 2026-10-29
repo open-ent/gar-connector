@@ -70,16 +70,16 @@ public class DataServiceRespImpl extends DataServiceBaseImpl implements DataServ
         if(source.equals(Gar.AAF1D)){
             query = "MATCH (s:Structure {source:'" + this.source + "'})" +
                     "<-[:DEPENDS]-(n:ManualGroup{name:\"" + controlGroup + "\"})<-[:IN]-(us:User) " +
-                    " WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports";
+                    " WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports";
         }else{
             query = "MATCH (s:Structure)" +
                     "<-[:DEPENDS]-(n:ManualGroup{name:\"" + controlGroup + "\"})<-[:IN]-(us:User) " +
-                    " WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports AND s.source <> '" + Gar.AAF1D + "' ";
+                    " WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports AND s.source <> '" + Gar.AAF1D + "' ";
         }
 
         query += " AND head(us.profiles) IN ['Teacher','Personnel'] " +
-                " AND NOT(HAS(us.deleteDate)) " +
-                " AND (HAS(us.emailAcademy) OR HAS(us.emailInternal) OR HAS(us.email)) " +
+                " AND us.deleteDate IS NULL " +
+                " AND (us.emailAcademy IS NOT NULL OR us.emailInternal IS NOT NULL OR us.email IS NOT NULL) " +
                 " WITH s, us ORDER BY s.id , us.id " +
                 " WITH s, collect(us)[..50] as uc " +    // 50 first Teachers or Personnels in each Structures
                 " UNWIND uc as u ";
@@ -93,7 +93,7 @@ public class DataServiceRespImpl extends DataServiceBaseImpl implements DataServ
                 "order by `" + PERSON_ID + "` ";
 
         query = query + dataReturn;
-        query += " ASC SKIP {skip} LIMIT {limit} ";
+        query += " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
         paginator.neoStream(query, params, skip, handler);

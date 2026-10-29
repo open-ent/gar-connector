@@ -114,12 +114,12 @@ public class DataServiceTeacherImpl extends DataServiceBaseImpl implements DataS
 
         if(source.equals(Gar.AAF1D)){
             query += "(s:Structure {source:'" + source + "'}) " +
-                    "WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports ";
+                    "WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports ";
         }else{
-            query += "(s:Structure) WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports AND s.source <> '" + Gar.AAF1D + "' ";
+            query += "(s:Structure) WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports AND s.source <> '" + Gar.AAF1D + "' ";
         }
 
-        query += "AND NOT(HAS(u.deleteDate)) AND pg.filter IN ['Personnel','Teacher'] " +
+        query += "AND u.deleteDate IS NULL AND pg.filter IN ['Personnel','Teacher'] " +
                 // ADMINISTRATIVE ATTACHMENT can reference non GAR exported structure
                 "OPTIONAL MATCH (u:User)-[:ADMINISTRATIVE_ATTACHMENT]->(sr:Structure) ";
         String dataReturn = "return distinct u.id  as `" + PERSON_ID + "`, " +
@@ -137,7 +137,7 @@ public class DataServiceTeacherImpl extends DataServiceBaseImpl implements DataS
                 "order by " + "`" + PERSON_ID + "`";
 
         query = query + dataReturn;
-        query += " ASC SKIP {skip} LIMIT {limit} ";
+        query += " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
         paginator.neoStream(query, params, skip, handler);

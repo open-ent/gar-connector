@@ -27,14 +27,14 @@ public class PurgeAssignmentServiceImpl implements PurgeAssignmentService {
         log.info(String.format("RA purge launch, GAR : %s, source : %s", entId, source));
 
         final String inSource = (Gar.AAF1D.equals(source)) ? "s.source = '" + Gar.AAF1D + "' " : "s.source <> '" + Gar.AAF1D + "' ";
-        final String query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: {garGroupName}})-[i:IN]-(u:User) WHERE " +
-                inSource + "AND HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports AND NOT (s)<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u) " +
+        final String query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: $garGroupName})-[i:IN]-(u:User) WHERE " +
+                inSource + "AND s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports AND NOT (s)<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u) " +
                 "WITH distinct u, COLLECT(i) as notAffectStruct " +
                 "OPTIONAL MATCH (s:Structure)<-[:DEPENDS]-(:ProfileGroup)-[i:IN]-(u) WHERE " +
-                inSource + "AND HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports " +
+                inSource + "AND s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports " +
                 "WITH distinct u, notAffectStruct, count(i) as isInGarStruct " +
-                "OPTIONAL MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: {garGroupName}})-[i:IN]-(u) WHERE " +
-                inSource + "AND HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports  AND (s)<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u) " +
+                "OPTIONAL MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: $garGroupName})-[i:IN]-(u) WHERE " +
+                inSource + "AND s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports  AND (s)<-[:DEPENDS]-(:ProfileGroup)<-[:IN]-(u) " +
                 "WITH distinct u, notAffectStruct, isInGarStruct, count(i) as nbRespAffect WHERE " +
                 "(isInGarStruct=0 AND size(notAffectStruct)<=2) OR (isInGarStruct>0 AND size(notAffectStruct)=1 AND nbRespAffect=0) " +
                 "UNWIND notAffectStruct as r DELETE r";
@@ -58,15 +58,17 @@ public class PurgeAssignmentServiceImpl implements PurgeAssignmentService {
         log.info(String.format("RA assignment launch, GAR : %s, source : %s", entId, source));
 
         final String inSource = (Gar.AAF1D.equals(source)) ? "s.source = '" + Gar.AAF1D + "' " : "s.source <> '" + Gar.AAF1D + "' ";
-        String query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: {garGroupName}}), (s)<-[:DEPENDS]-(pg:ProfileGroup)<-[:IN]-(u:User) WHERE " +
-                inSource + "AND HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports ";
+        String query = "MATCH (s:Structure)<-[:DEPENDS]-(g:ManualGroup {name: $garGroupName}), (s)<-[:DEPENDS]-(pg:ProfileGroup)<-[:IN]-(u:User) WHERE " +
+                inSource + "AND s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports ";
 
         if (Gar.AAF1D.equals(source) && this.raAssignmentPolicy.containsKey(entId) && "teacher".equalsIgnoreCase(raAssignmentPolicy.getString(entId))) {
             query += "AND pg.filter = 'Teacher' ";
         } else {
             query += "AND pg.filter IN ['Teacher','Personnel'] AND ANY(function IN u.functions WHERE function CONTAINS '$DIR$' OR function CONTAINS '$DOC$' OR function CONTAINS '$DIRECTION') ";
         }
-        query += "CREATE UNIQUE u-[:IN {source:'MANUAL'}]->g";
+        // CREATE UNIQUE n'existe plus en Cypher 3.x/ArcadeDB : MERGE crée la relation avec ces
+        // propriétés si elle manque, exactement comme lui.
+        query += "MERGE (u)-[:IN {source:'MANUAL'}]->(g)";
 
         final JsonObject params = new JsonObject().put("garGroupName", this.garGroupName).put("entId", entId);
 

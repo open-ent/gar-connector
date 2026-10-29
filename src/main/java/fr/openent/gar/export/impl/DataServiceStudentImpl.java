@@ -144,17 +144,17 @@ public class DataServiceStudentImpl extends DataServiceBaseImpl implements DataS
         String query;
         if(source.equals(Gar.AAF1D)){
             query = "MATCH (u:User)-[:IN]->(pg:ProfileGroup {filter:'Student'})-[:DEPENDS]->(s:Structure {source:'" + source + "'}) " +
-                    "where HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports AND NOT(HAS(u.deleteDate)) " +
+                    "where s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports AND u.deleteDate IS NULL " +
                     "OPTIONAL MATCH (u:User)-[:ADMINISTRATIVE_ATTACHMENT]->(sr:Structure {source:'" + source + "'}) " +
-                    "WHERE HAS(sr.exports) AND ('GAR-' + {entId}) IN sr.exports " +
-                    "AND NOT(HAS(u.deleteDate)) ";
+                    "WHERE sr.exports IS NOT NULL AND ('GAR-' + $entId) IN sr.exports " +
+                    "AND u.deleteDate IS NULL ";
         }else{
             query  = "MATCH (u:User)-[:IN]->(pg:ProfileGroup {filter:'Student'})-[:DEPENDS]->(s:Structure) " +
-                    "where HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports AND s.source <> '" + Gar.AAF1D + "' " +
-                    "AND NOT(HAS(u.deleteDate)) " +
+                    "where s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports AND s.source <> '" + Gar.AAF1D + "' " +
+                    "AND u.deleteDate IS NULL " +
                     "OPTIONAL MATCH (u:User)-[:ADMINISTRATIVE_ATTACHMENT]->(sr:Structure) " +
-                    "WHERE HAS(sr.exports) AND ('GAR-' + {entId}) IN sr.exports AND sr.source <> '" + Gar.AAF1D + "' " +
-                    "AND NOT(HAS(u.deleteDate)) ";
+                    "WHERE sr.exports IS NOT NULL AND ('GAR-' + $entId) IN sr.exports AND sr.source <> '" + Gar.AAF1D + "' " +
+                    "AND u.deleteDate IS NULL ";
         }
         String dataReturn = "return distinct " +
                 "u.id  as `" + PERSON_ID + "`, " +
@@ -169,7 +169,7 @@ public class DataServiceStudentImpl extends DataServiceBaseImpl implements DataS
                 "order by " + "`" + PERSON_ID + "`";
 
         query = query + dataReturn;
-        query += " ASC SKIP {skip} LIMIT {limit} ";
+        query += " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
         paginator.neoStream(query, params, skip, handler);

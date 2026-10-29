@@ -41,8 +41,8 @@ public class DefaultParameterServiceTest {
         Async async = ctx.async();
 
         String expectedQuery =
-                "MATCH (u:User)-[:IN]->(g:ManualGroup{name: {groupName} })-[:DEPENDS]->(s:Structure) " +
-                "WHERE s.id IN {structureIds} AND u.id = {userId} " +
+                "MATCH (u:User {id: $userId})-[:IN]->(g:ManualGroup{name: $groupName })-[:DEPENDS]->(s:Structure) " +
+                "WHERE s.id IN $structureIds " +
                 "RETURN DISTINCT s.id AS structureId";
         JsonObject expectedParams = new JsonObject()
                 .put("userId", "a25cd679-b30b-4701-8c60-231cdc30cdf2")

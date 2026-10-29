@@ -38,8 +38,8 @@ public class DefaultParameterService implements ParameterService {
 
     @Override
     public void undeployStructureGar(String structureId, String entId, Handler<Either<String, JsonObject>> handler) {
-        String query = "MATCH (s:Structure {id:{structureId}}) SET s.exports = FILTER(val IN s.exports " +
-                "WHERE val <> ('GAR-' + {entId})) RETURN s.exports;";
+        String query = "MATCH (s:Structure {id:$structureId}) SET s.exports = FILTER(val IN s.exports " +
+                "WHERE val <> ('GAR-' + $entId)) RETURN s.exports;";
         JsonObject params = new JsonObject()
                 .put("structureId", structureId)
                 .put("entId", entId);
@@ -48,10 +48,10 @@ public class DefaultParameterService implements ParameterService {
 
     @Override
     public void getStructureGar(String entId, Handler<Either<String, JsonArray>> handler) {
-        String query = "MATCH (s:Structure) WHERE HAS(s.UAI) OPTIONAL MATCH (s)<-[:DEPENDS]-(g:ManualGroup{name: {groupName} }) " +
+        String query = "MATCH (s:Structure) WHERE s.UAI IS NOT NULL OPTIONAL MATCH (s)<-[:DEPENDS]-(g:ManualGroup{name: $groupName }) " +
                 "WHERE s.source starts with '"+ Gar.AAF +"' " +
                 "RETURN DISTINCT s.UAI as uai, s.name as name, s.id as structureId, s.source as source, " +
-                "(HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports) as deployed, g.id as id";
+                "(s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports) as deployed, g.id as id";
 
         JsonObject params = new JsonObject().put("groupName", GAR_GROUP_NAME).put("entId", entId);
         Neo4j.getInstance().execute(query, params, Neo4jResult.validResultHandler(handler));
@@ -61,8 +61,8 @@ public class DefaultParameterService implements ParameterService {
     public Future<List<Neo4jStructure>> getDeployedStructureGar(String entId) {
         Promise<List<Neo4jStructure>> promise = Promise.promise();
 
-        String query = "MATCH (s:Structure) WHERE HAS(s.UAI) AND " +
-                "s.source starts with '"+ Gar.AAF +"' AND (HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports) " +
+        String query = "MATCH (s:Structure) WHERE s.UAI IS NOT NULL AND " +
+                "s.source starts with '"+ Gar.AAF +"' AND (s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports) " +
                 "RETURN s.UAI as uai";
         JsonObject params = new JsonObject().put("entId", entId);
 
@@ -73,9 +73,9 @@ public class DefaultParameterService implements ParameterService {
 
     @Override
     public void createGarGroupToStructure(JsonObject body, Handler<Either<String, JsonObject>> handler) {
-        String query = "MATCH (s:Structure {id:{structureId}}) " +
-                "OPTIONAL MATCH (s)<-[:DEPENDS]-(g:ManualGroup{name: {groupName} }) " +
-                "SET s.exports = coalesce(s.exports, []) + ('GAR-' + {entId}) RETURN g.id as groupId";
+        String query = "MATCH (s:Structure {id:$structureId}) " +
+                "OPTIONAL MATCH (s)<-[:DEPENDS]-(g:ManualGroup{name: $groupName }) " +
+                "SET s.exports = coalesce(s.exports, []) + ('GAR-' + $entId) RETURN g.id as groupId";
         JsonObject creationParams = new JsonObject()
                 .put("structureId", body.getString("structureId"))
                 .put("entId", body.getString("entId"))
@@ -110,7 +110,7 @@ public class DefaultParameterService implements ParameterService {
                         .getJsonObject(0).getString("id");
 
                 String queryRole = "MATCH (a:Application)-[]->(ac:Action)<-[]-(r:Role)" +
-                        " WHERE a.name = {linkName} RETURN r.id as id";
+                        " WHERE a.name = $linkName RETURN r.id as id";
 
                 Neo4j.getInstance().execute(queryRole, new JsonObject().put("linkName", GAR_LINK_NAME),
                         Neo4jResult.validUniqueResultHandler(linkResult -> {
@@ -124,9 +124,11 @@ public class DefaultParameterService implements ParameterService {
                                 return;
                             }
                             String roleId = linkResult.right().getValue().getString("id");
-                            String queryLink = "MATCH (r:Role), (g:Group) " +
-                                    "WHERE r.id = {roleId} and g.id = {groupId} " +
-                                    "CREATE UNIQUE (g)-[:AUTHORIZED]->(r) ";
+                            // Identifiants dans les motifs, pas en WHERE sur un produit cartésien :
+                            // ArcadeDB attaque alors par l'index. CREATE UNIQUE n'existe plus en
+                            // Cypher 3.x/ArcadeDB ; MERGE ne crée la relation que si elle manque.
+                            String queryLink = "MATCH (r:Role {id: $roleId}), (g:Group {id: $groupId}) " +
+                                    "MERGE (g)-[:AUTHORIZED]->(r) ";
                             JsonObject params = new JsonObject()
                                     .put("groupId", groupId)
                                     .put("roleId", roleId);
@@ -145,17 +147,17 @@ public class DefaultParameterService implements ParameterService {
                 .put("groupId", body.getString("groupId"))
                 .put("structureId", body.getString("structureId"));
         if (Gar.AAF.equals(body.getString("source"))) {
-            query = "match (g:ManualGroup{name: {groupName}, id: {groupId} }), " +
-                    "(u:User{profiles:['Personnel']})--(Structure{id: {structureId} }) " +
-                    "WHERE ANY(function IN u.functions WHERE function CONTAINS {direction} OR function CONTAINS {documentation}) " +
-                    "create unique (u)-[r:IN{source:{source}}]->(g) ";
+            query = "match (g:ManualGroup{name: $groupName, id: $groupId }), " +
+                    "(u:User{profiles:['Personnel']})--(Structure{id: $structureId }) " +
+                    "WHERE ANY(function IN u.functions WHERE function CONTAINS $direction OR function CONTAINS $documentation) " +
+                    "create unique (u)-[r:IN{source:$source}]->(g) ";
             params.put("direction", FUNCTION_DIRECTION_NAME);
             params.put("documentation", FUNCTION_DOCUMENTATION_NAME);
         } else {
-            query = "MATCH (g:ManualGroup{name: {groupName}, id: {groupId} }), " +
-                    "(s:Structure {id: {structureId}})-[:DEPENDS]-(pg:ProfileGroup)-[:IN]-(u:User)-[r:HAS_FUNCTION]-n " +
+            query = "MATCH (g:ManualGroup{name: $groupName, id: $groupId }), " +
+                    "(s:Structure {id: $structureId})-[:DEPENDS]-(pg:ProfileGroup)-[:IN]-(u:User)-[r:HAS_FUNCTION]-(n) " +
                     "WHERE n.externalId='ADMIN_LOCAL' and s.id IN r.scope " +
-                    "create unique (u)-[:IN{source:{source}}]->(g) ";
+                    "create unique (u)-[:IN{source:$source}]->(g) ";
         }
         Neo4j.getInstance().execute(query, params, Neo4jResult.validUniqueResultHandler(handler));
     }
@@ -164,8 +166,10 @@ public class DefaultParameterService implements ParameterService {
     public Future<JsonArray> userHasGarGroup(JsonObject body) {
         Promise<JsonArray> promise = Promise.promise();
         final String query =
-                "MATCH (u:User)-[:IN]->(g:ManualGroup{name: {groupName} })-[:DEPENDS]->(s:Structure) " +
-                "WHERE s.id IN {structureIds} AND u.id = {userId} " +
+                // L'utilisateur en tête, identifiant dans le motif : ArcadeDB exécute le motif dans
+                // l'ordre écrit, et partirait sinon de tous les utilisateurs.
+                "MATCH (u:User {id: $userId})-[:IN]->(g:ManualGroup{name: $groupName })-[:DEPENDS]->(s:Structure) " +
+                "WHERE s.id IN $structureIds " +
                 "RETURN DISTINCT s.id AS structureId";
         final JsonObject params = new JsonObject()
                 .put(Field.USER_ID, body.getString(Field.USER_ID))

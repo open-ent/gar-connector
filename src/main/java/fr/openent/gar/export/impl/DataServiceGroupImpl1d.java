@@ -216,16 +216,16 @@ public class DataServiceGroupImpl1d extends DataServiceBaseImpl implements DataS
                 "MATCH (u:User)-[:IN]->(fg:FunctionalGroup)-[d2:DEPENDS]->(s:Structure {source:'" + this.source + "'}) " +
                 "WHERE NOT (fg.name IN classes) " +
                 "WITH u,s,fg MATCH (u)-[:IN]->(pg:ProfileGroup)-[:DEPENDS]->(s) " +
-                "WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports " +
+                "WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports " +
                 "AND head(u.profiles) IN ['Student', 'Teacher', 'Personnel'] " +
-                "AND NOT(HAS(u.deleteDate)) " +
+                "AND u.deleteDate IS NULL " +
                 "with distinct s.UAI as uai, fg, " + condition +
                 " return distinct coalesce(" + (hasAcademyPrefix ? "fgcode" : "fgcode[size(fgcode)-1]") + ", fg.id) as `" + GROUPS_CODE + "`, " +
                 "uai as `" + STRUCTURE_UAI + "`, " +
                 "fg.name as `" + GROUPS_DESC + "`, " +
                 "\"" + GROUPS_GROUP_NAME + "\" as `" + GROUPS_STATUS + "` " +
                 "order by `" + STRUCTURE_UAI + "`, `" + GROUPS_CODE + "` " +
-                " ASC SKIP {skip} LIMIT {limit} ";
+                " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
         paginator.neoStream(groupsQuery, params, skip, handler);
@@ -252,7 +252,7 @@ public class DataServiceGroupImpl1d extends DataServiceBaseImpl implements DataS
             condition = "split(c.externalId,\"-\") as ccode";
         }
         final String classQuery = "MATCH (c:Class)-[:BELONGS]->(s:Structure {source:'" + this.source + "'}) " +
-                "WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports " +
+                "WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports " +
                 "WITH distinct s.UAI as uai, c, " + condition +
                 " RETURN distinct " +
                 "coalesce(" + (hasAcademyPrefix ? "ccode" : "ccode[size(ccode)-1]") + ", c.id) as `" + GROUPS_CODE + "`, " +
@@ -260,7 +260,7 @@ public class DataServiceGroupImpl1d extends DataServiceBaseImpl implements DataS
                 "c.name as `" + GROUPS_DESC + "`, " +
                 "\"" + GROUPS_DIVISION_NAME + "\" as `" + GROUPS_STATUS + "` " +
                 "order by `" + STRUCTURE_UAI + "`, `" + GROUPS_CODE + "` " +
-                " ASC SKIP {skip} LIMIT {limit} ";
+                " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
 
@@ -285,15 +285,15 @@ public class DataServiceGroupImpl1d extends DataServiceBaseImpl implements DataS
             condition = "split(c.externalId,\"-\") as ccode";
         }
         final String classQuery = "MATCH (u:User)-[:IN]->(pg:ProfileGroup)-[:DEPENDS]->(c:Class)-[:BELONGS]->(s:Structure {source:'" + this.source + "'})" +
-                "WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports " +
+                "WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports " +
                 "AND pg.filter IN ['Student', 'Teacher', 'Personnel'] " +
-                "AND NOT(HAS(u.deleteDate)) " +
+                "AND u.deleteDate IS NULL " +
                 "WITH distinct s.UAI as uai, u.id as uid, c, " + condition +
                 " return distinct uai as `" + STRUCTURE_UAI + "`, " +
                 "uid as `" + PERSON_ID + "`, " +
                 "coalesce(" + (hasAcademyPrefix ? "ccode" : "ccode[size(ccode)-1]") + ", c.id) as `" + GROUPS_CODE + "` " +
                 "order by `" + PERSON_ID + "`, `" + GROUPS_CODE + "`, `" + STRUCTURE_UAI + "` " +
-                " ASC SKIP {skip} LIMIT {limit} ";
+                " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
 
@@ -318,18 +318,18 @@ public class DataServiceGroupImpl1d extends DataServiceBaseImpl implements DataS
         }
         final String groupsQuery =
                 "MATCH (s:Structure {source:'" + this.source + "'}) " +
-                "WHERE HAS(s.exports) AND ('GAR-' + {entId}) IN s.exports " +
+                "WHERE s.exports IS NOT NULL AND ('GAR-' + $entId) IN s.exports " +
                 "OPTIONAL MATCH (s)<-[:BELONGS]-(c:Class) " +
                 "WITH collect(c.name) as classes, s " +
                 "MATCH (s)<-[:DEPENDS]-(fg:FunctionalGroup)<-[:IN]-(u:User) " +
                 "WHERE NOT (fg.name IN classes) AND head(u.profiles) IN ['Student', 'Teacher', 'Personnel'] " +
-                "AND NOT(HAS(u.deleteDate)) " +
+                "AND u.deleteDate IS NULL " +
                 "with distinct s.UAI as uai, u.id as uid, fg, " + condition +
                 " return distinct uai as `" + STRUCTURE_UAI + "`, " +
                 "uid as `" + PERSON_ID + "`, " +
                 "coalesce(" + (hasAcademyPrefix ? "fgcode" : "fgcode[size(fgcode)-1]") + ", fg.id) as `" + GROUPS_CODE + "` " +
                 "order by `" + PERSON_ID + "`, `" + GROUPS_CODE + "`, `" + STRUCTURE_UAI + "`" +
-                " ASC SKIP {skip} LIMIT {limit} ";
+                " ASC SKIP $skip LIMIT $limit ";
 
         JsonObject params = new JsonObject().put("limit", PaginatorHelperImpl.LIMIT).put("entId", entId);
 

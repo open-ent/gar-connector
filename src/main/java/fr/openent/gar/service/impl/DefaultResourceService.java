@@ -69,7 +69,7 @@ public class DefaultResourceService implements ResourceService {
             return;
         }
 
-        String uaiQuery = "MATCH (s:Structure {id: {structureId}}) return s.UAI as UAI, s.name as name, s.exports as exports";
+        String uaiQuery = "MATCH (s:Structure {id: $structureId}) return s.UAI as UAI, s.name as name, s.exports as exports";
         JsonObject params = new JsonObject().put("structureId", structure);
 
         Neo4j.getInstance().execute(uaiQuery, params, Neo4jResult.validResultHandler(event -> {
