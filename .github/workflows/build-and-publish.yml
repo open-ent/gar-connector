@@ -1,7 +1,7 @@
 name: Build & Publish Fat Mod
 
 # Chaîne de publication commune aux modules de l'ENT (cf. moodle-connector, poll) :
-# frontend Gulp sous Node 10, fat jar Maven sous JDK 21, publication sur rct-nexus au tag.
+# frontend Gulp sous Node 26, fat jar Maven sous JDK 25, publication sur rct-nexus au tag.
 # Remplace dev-check-repository.yml (npm + mvn install avec tests à chaque push) et la
 # chaîne Jenkins/edifice ; c'est aussi la recette que rejoue le build local
 # (open-ent-mods : scripts/release/lib/ci-recipe.py, via release.sh).
@@ -39,19 +39,19 @@ permissions:
 
 jobs:
   frontend:
-    name: Build Frontend (Gulp/Node 10)
+    name: Build Frontend (Gulp/Node 26)
     runs-on: ${{ vars.OEM_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 
       # public/dist est ignoré par git : sans ce build, le fat jar part sans interface.
-      - name: Build with Node 10 via Docker
+      - name: Build with Node 26 via Docker
         run: |
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
             --user root \
-            opendigitaleducation/node:10-alpine \
+            node:26-alpine \
             sh -c "npm install --legacy-peer-deps && node_modules/gulp/bin/gulp.js build"
 
       - name: Verify build outputs
@@ -75,7 +75,7 @@ jobs:
 
       - uses: actions/setup-java@v6
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: temurin
           cache: maven
 
@@ -136,7 +136,7 @@ jobs:
 
       # -Dmaven.test.skip=true (et pas seulement -DskipTests) : évite la COMPILATION des tests,
       # qui exigent org.entcore:tests (${entCoreVersion}), artefact qui n'est plus publié, et
-      # que le plugin Scala hérité d'app-parent ne sait pas compiler sous JDK 21.
+      # que le plugin Scala hérité d'app-parent ne sait pas compiler sous les JDK récents.
       - name: Build fat JAR
         run: |
           ENTCORE_OPT=""
@@ -144,6 +144,16 @@ jobs:
           mvn clean package -Dmaven.test.skip=true -B -DbuildNumber=${GITHUB_SHA::8} -DscmBranch=${GITHUB_REF_NAME} $ENTCORE_OPT
         env:
           ENTCORE_VERSION: ${{ github.event.inputs.entcore_version }}
+
+      # Depuis le JDK 23, javac n'exécute plus les processeurs d'annotations trouvés sur le
+      # classpath : sans `-proc:full` (pom), le jar part sans securedaction/ ni routes/, et
+      # chaque route sécurisée répond 404 — sans aucune erreur de build.
+      - name: Verify annotation metadata
+        run: |
+          FAT_JAR=$(ls target/*-fat.jar | head -1)
+          for d in securedaction routes; do
+            unzip -Z1 "$FAT_JAR" | grep -q "^$d/" || { echo "::error::$d/ absent de $FAT_JAR"; exit 1; }
+          done
 
       - name: Configure Maven for GitHub Packages
         if: startsWith(github.ref, 'refs/tags/')
